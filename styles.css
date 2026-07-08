@@ -3,6 +3,7 @@
    ============================================================ */
 
 :root {
+  color-scheme: light;
   --bg: #f2f2f7;
   --bg-elevated: #ffffff;
   --bg-grouped: #ffffff;
@@ -33,6 +34,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --bg: #000000;
     --bg-elevated: #1c1c1e;
     --bg-grouped: #1c1c1e;
@@ -417,6 +419,10 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: var(--la
 .form-row input::placeholder { color: var(--label-3); }
 .form-row select { appearance: none; -webkit-appearance: none; direction: rtl; }
 .form-row select option { direction: ltr; }
+
+/* dropdown nativo dos selects segue o tema (o popup não herda o CSS da página) */
+select { color-scheme: inherit; }
+select option { background: var(--bg-elevated); color: var(--label); }
 .form-row .unit { color: var(--label-2); font-size: 14px; flex-shrink: 0; }
 .form-row input[type="checkbox"] {
   flex: none; width: 51px; height: 31px; appearance: none; -webkit-appearance: none;
