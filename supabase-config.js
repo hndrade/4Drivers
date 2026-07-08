@@ -12,5 +12,5 @@
    Deixe os dois valores vazios para usar o app apenas local.
    ============================================================ */
 
-const SUPABASE_URL = "";
-const SUPABASE_ANON_KEY = "";
+const SUPABASE_URL = "https://mhdenbffzrgwqefejwfb.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1oZGVuYmZmenJnd3FlZmVqd2ZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1MTM2NTYsImV4cCI6MjA5OTA4OTY1Nn0.KV9fOHAXCY0FYH4V2ho-cBAYGrs2wW89BMN41F6xxfQ";
