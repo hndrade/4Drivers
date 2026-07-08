@@ -62,7 +62,9 @@ Abra `http://localhost:8080`.
 
 ## ☁️ Sincronização entre aparelhos (Supabase)
 
-Por padrão os dados ficam só no dispositivo. Para sincronizar entre web e celular, o app se conecta a um projeto **Supabase** (gratuito) direto do navegador — a hospedagem continua sendo estática (GitHub Pages etc.), sem servidor próprio.
+Com o Supabase configurado, o app vira uma **área logada**: a primeira tela é o login (e-mail/senha) e todos os dados ficam vinculados à conta, sincronizados entre web e celular. O app se conecta ao projeto **Supabase** (gratuito) direto do navegador — a hospedagem continua sendo estática (GitHub Pages etc.), sem servidor próprio.
+
+Sem configurar o Supabase, não há login e os dados ficam só no dispositivo (modo local).
 
 ### Passo a passo (~5 minutos)
 
@@ -92,7 +94,7 @@ const SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
 const SUPABASE_ANON_KEY = "eyJ...";
 ```
 
-5. **Publique novamente** (commit + push). Depois, em **Ajustes → Sincronização entre aparelhos**, crie sua conta com e-mail/senha e entre com ela em todos os aparelhos
+5. **Publique novamente** (commit + push). Ao abrir o app, a tela de login aparece: crie sua conta com e-mail/senha e entre com ela em todos os aparelhos
 
 > 🔐 A *anon key* é pública por design — pode ficar no repositório. A segurança vem do **RLS** (Row Level Security) criado no passo 2: cada usuário só lê e escreve os próprios dados.
 
@@ -100,8 +102,9 @@ const SUPABASE_ANON_KEY = "eyJ...";
 
 - Ao **abrir o app** (e ao voltar para ele), baixa os dados da nuvem
 - Ao **salvar qualquer registro**, envia para a nuvem ~1,5 s depois (com aviso de pendência se estiver offline; reenvia na próxima oportunidade)
-- No **primeiro login** de um aparelho que já tinha dados, os registros locais e os da nuvem são **mesclados** (nada se perde)
-- O app continua funcionando **offline**; a sincronização acontece quando houver conexão
+- No **primeiro login** de um aparelho que já tinha dados locais, os registros locais e os da nuvem são **mesclados** (nada se perde)
+- **Trocar de conta** no mesmo aparelho não mistura dados: cada conta vê apenas os próprios registros
+- Depois de logado, o app continua funcionando **offline**; a sincronização acontece quando houver conexão. A sessão fica salva — não é preciso entrar toda vez
 
 ## 🧭 Como funciona a projeção por km
 

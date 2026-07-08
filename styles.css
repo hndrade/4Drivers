@@ -454,6 +454,30 @@ select option { background: var(--bg-elevated); color: var(--label); }
 }
 .color-swatch.selected { border-color: var(--label); }
 
+/* ---------- Tela de login (área logada) ---------- */
+
+body.auth-mode #sidebar,
+body.auth-mode #tabbar,
+body.auth-mode #fab,
+body.auth-mode #topbar { display: none; }
+
+.auth-screen {
+  max-width: 380px;
+  margin: 9dvh auto 0;
+  text-align: center;
+  padding: 0 4px;
+}
+.auth-screen img { border-radius: 18px; margin-bottom: 14px; }
+.auth-screen h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; }
+.auth-screen .auth-sub {
+  font-size: 15px; color: var(--label-2);
+  margin: 6px auto 22px; max-width: 320px;
+}
+.auth-screen .form-group { text-align: left; }
+.auth-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.auth-actions button { width: 100%; padding: 13px; font-size: 16px; }
+.auth-actions button:disabled { opacity: 0.6; }
+
 /* ---------- Toast ---------- */
 
 #toast {
