@@ -15,7 +15,7 @@ App web para **controle de manutenções e gastos com veículos** — visual lim
 - **Alertas e notificações** — aviso de manutenção vencida ou próxima (antecedência configurável em dias e km), com notificações do navegador/dispositivo
 - **Painel** — gasto do mês, consumo médio, custo por km, gráfico dos últimos 6 meses e atividade recente
 - **Backup** — exporte/importe seus dados em JSON e exporte gastos em CSV para planilhas
-- **Privacidade** — os dados ficam **somente no seu dispositivo** (localStorage); nada é enviado a servidores
+- **Sincronização entre aparelhos (opcional)** — conecte um projeto Supabase gratuito e use a mesma conta no computador e no celular; sem configurar, os dados ficam **somente no seu dispositivo** (localStorage)
 
 ## 📱 Instalar no celular
 
@@ -60,6 +60,49 @@ python3 -m http.server 8080
 
 Abra `http://localhost:8080`.
 
+## ☁️ Sincronização entre aparelhos (Supabase)
+
+Por padrão os dados ficam só no dispositivo. Para sincronizar entre web e celular, o app se conecta a um projeto **Supabase** (gratuito) direto do navegador — a hospedagem continua sendo estática (GitHub Pages etc.), sem servidor próprio.
+
+### Passo a passo (~5 minutos)
+
+1. **Crie o projeto**: acesse [supabase.com](https://supabase.com) → *New project* (plano Free)
+2. **Crie a tabela e as regras de segurança**: no painel do projeto, abra *SQL Editor* → *New query*, cole e execute:
+
+```sql
+create table public.user_data (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.user_data enable row level security;
+
+create policy "usuario acessa apenas os proprios dados"
+  on public.user_data for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+```
+
+3. **(Recomendado)** Em *Authentication → Sign In / Up → Email*, desative **Confirm email** para poder criar a conta e entrar direto, sem esperar e-mail de confirmação
+4. **Copie as credenciais**: em *Settings → API*, copie a **Project URL** e a **anon public key**, e preencha o arquivo `supabase-config.js`:
+
+```js
+const SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
+const SUPABASE_ANON_KEY = "eyJ...";
+```
+
+5. **Publique novamente** (commit + push). Depois, em **Ajustes → Sincronização entre aparelhos**, crie sua conta com e-mail/senha e entre com ela em todos os aparelhos
+
+> 🔐 A *anon key* é pública por design — pode ficar no repositório. A segurança vem do **RLS** (Row Level Security) criado no passo 2: cada usuário só lê e escreve os próprios dados.
+
+### Como o sync funciona
+
+- Ao **abrir o app** (e ao voltar para ele), baixa os dados da nuvem
+- Ao **salvar qualquer registro**, envia para a nuvem ~1,5 s depois (com aviso de pendência se estiver offline; reenvia na próxima oportunidade)
+- No **primeiro login** de um aparelho que já tinha dados, os registros locais e os da nuvem são **mesclados** (nada se perde)
+- O app continua funcionando **offline**; a sincronização acontece quando houver conexão
+
 ## 🧭 Como funciona a projeção por km
 
 1. Registre o odômetro periodicamente (abastecimentos e serviços com odômetro também contam)
@@ -79,7 +122,9 @@ O app usa a API de notificações do navegador via service worker: os avisos sã
 ```
 index.html            # estrutura da interface
 styles.css            # design system estilo iOS (claro/escuro automático)
-app.js                # lógica: dados, telas, formulários, gráficos, alertas
+app.js                # lógica: dados, telas, formulários, gráficos, alertas, sync
+cloud.js              # autenticação e API do Supabase (REST, sem SDK)
+supabase-config.js    # credenciais do seu projeto Supabase (opcional)
 sw.js                 # service worker (offline)
 manifest.webmanifest  # manifest PWA
 icons/                # ícones do app

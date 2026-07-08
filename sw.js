@@ -1,11 +1,13 @@
 /* 4Drivers — service worker: app shell offline (cache-first com atualização em segundo plano) */
 
-const CACHE = "4drivers-v3";
+const CACHE = "4drivers-v4";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./cloud.js",
+  "./supabase-config.js",
   "./manifest.webmanifest",
   "./icons/icon.svg",
   "./icons/icon-192.png",

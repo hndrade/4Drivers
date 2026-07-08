@@ -37,6 +37,11 @@ function loadData() {
 
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  if (cloudReady()) {
+    syncMeta.dirty = true;
+    saveSyncMeta();
+    scheduleCloudPush();
+  }
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -250,6 +255,123 @@ function costPerKm(vehicleId) {
   const start = readings[0].date, end = readings[readings.length - 1].date;
   const t = totalsInPeriod(vehicleId, start, end);
   return t.total > 0 ? t.total / km : null;
+}
+
+/* ---------------- Sincronização na nuvem (Supabase) ---------------- */
+
+const SYNC_META_KEY = "4drivers_syncmeta";
+let syncMeta = {};
+try { syncMeta = JSON.parse(localStorage.getItem(SYNC_META_KEY) || "{}"); } catch (e) { syncMeta = {}; }
+
+const saveSyncMeta = () => localStorage.setItem(SYNC_META_KEY, JSON.stringify(syncMeta));
+
+const cloudReady = () => typeof Cloud !== "undefined" && Cloud.enabled() && !!Cloud.user();
+
+const hasLocalData = () =>
+  db.vehicles.length || db.fuelings.length || db.expenses.length ||
+  db.services.length || db.odometers.length || db.maintenances.length;
+
+/** Grava dados vindos da nuvem sem marcar como alteração local. */
+function adoptData(parsed) {
+  db = Object.assign(defaultData(), parsed, {
+    settings: Object.assign(defaultData().settings, (parsed && parsed.settings) || {}),
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+}
+
+/** União por id entre nuvem e local (local vence em caso de conflito no mesmo registro). */
+function mergeCloudData(remote) {
+  const merged = defaultData();
+  for (const key of ["vehicles", "fuelings", "expenses", "services", "odometers", "maintenances"]) {
+    const map = new Map();
+    for (const r of remote[key] || []) if (r && r.id) map.set(r.id, r);
+    for (const r of db[key] || []) if (r && r.id) map.set(r.id, r);
+    merged[key] = [...map.values()];
+  }
+  merged.settings = Object.assign({}, merged.settings, remote.settings || {}, db.settings || {});
+  return merged;
+}
+
+let cloudPushTimer = null;
+function scheduleCloudPush() {
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer = setTimeout(cloudPushNow, 1500);
+}
+
+async function cloudPushNow() {
+  if (!cloudReady() || !syncMeta.dirty) return;
+  try {
+    await Cloud.push(db);
+    syncMeta.dirty = false;
+    syncMeta.lastSync = new Date().toISOString();
+    saveSyncMeta();
+    refreshSyncStatus();
+  } catch (e) {
+    // fica pendente: tenta de novo no próximo save/retorno ao app
+    console.warn("Sync push:", e.message);
+    refreshSyncStatus();
+  }
+}
+
+async function cloudPullNow() {
+  if (!cloudReady()) return;
+  try {
+    const row = await Cloud.pull();
+    if (!row || !row.data) {
+      // nuvem vazia: primeiro aparelho — sobe o que existe localmente
+      if (hasLocalData()) { syncMeta.dirty = true; saveSyncMeta(); scheduleCloudPush(); }
+      return;
+    }
+    const firstLoginWithData = hasLocalData() && !syncMeta.lastSync;
+    if (syncMeta.dirty || firstLoginWithData) {
+      // alterações dos dois lados: une por id e reenvia
+      adoptData(mergeCloudData(row.data));
+      syncMeta.dirty = true;
+      saveSyncMeta();
+      scheduleCloudPush();
+    } else {
+      adoptData(row.data);
+      syncMeta.dirty = false;
+      syncMeta.lastSync = new Date().toISOString();
+      saveSyncMeta();
+    }
+    render();
+  } catch (e) {
+    console.warn("Sync pull:", e.message);
+  }
+}
+
+function syncStatusText() {
+  if (syncMeta.dirty) return "Alterações aguardando envio…";
+  if (syncMeta.lastSync) {
+    const mins = Math.round((Date.now() - new Date(syncMeta.lastSync)) / 60000);
+    return mins < 1 ? "Sincronizado agora" : mins < 60 ? `Sincronizado há ${mins} min` : "Sincronizado em " + new Date(syncMeta.lastSync).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+  return "Conectado";
+}
+
+function refreshSyncStatus() {
+  const el = document.getElementById("sync-status");
+  if (el) el.textContent = syncStatusText();
+}
+
+async function cloudAuth(mode) {
+  const email = fieldVal("cloud-email");
+  const pass = field("cloud-pass")?.value || "";
+  if (!email || !pass) { toast("Informe e-mail e senha"); return; }
+  try {
+    if (mode === "signup") {
+      const r = await Cloud.signUp(email, pass);
+      if (!r.session) { toast("Conta criada! Confirme no seu e-mail e depois toque em Entrar"); return; }
+    } else {
+      await Cloud.signIn(email, pass);
+    }
+    toast("Conectado ☁️");
+    await cloudPullNow();
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
 }
 
 /* ---------------- Notifications & alerts ---------------- */
@@ -731,6 +853,8 @@ function viewSettings() {
     </div>
     <div class="form-hint">${notifHint}</div>
 
+    ${viewCloudSection()}
+
     <div class="section-title">Dados</div>
     <div class="form-group">
       <button class="list-row" data-action="export-data">
@@ -763,6 +887,49 @@ function viewSettings() {
           <p style="margin-top:8px">💡 Dica: no celular, use "Adicionar à Tela de Início" para instalar como app.</p>
         </div>
       </details>
+    </div>`;
+}
+
+function viewCloudSection() {
+  if (typeof Cloud === "undefined" || !Cloud.enabled()) {
+    return `
+      <div class="section-title">Sincronização entre aparelhos</div>
+      <div class="form-hint" style="margin-top:0">Não configurada — os dados ficam apenas neste dispositivo. Para sincronizar entre web e celular, crie um projeto gratuito no Supabase e preencha o arquivo <strong>supabase-config.js</strong> (passo a passo no README do projeto).</div>`;
+  }
+  const u = Cloud.user();
+  if (!u) {
+    return `
+      <div class="section-title">Sincronização entre aparelhos</div>
+      <div class="form-group">
+        <div class="form-row"><label>E-mail</label><input id="cloud-email" type="email" autocomplete="email" inputmode="email" placeholder="voce@email.com"></div>
+        <div class="form-row"><label>Senha</label><input id="cloud-pass" type="password" autocomplete="current-password" placeholder="mínimo 6 caracteres"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <button class="btn-primary" style="flex:1" data-action="cloud-signin">Entrar</button>
+        <button class="btn-secondary" style="flex:1" data-action="cloud-signup">Criar conta</button>
+      </div>
+      <div class="form-hint">Use a mesma conta em todos os aparelhos para manter veículos e registros sincronizados. Ao entrar, os dados deste aparelho são mesclados com os da nuvem.</div>`;
+  }
+  return `
+    <div class="section-title">Sincronização entre aparelhos</div>
+    <div class="form-group">
+      <div class="list-row" style="cursor:default">
+        <div class="row-icon" style="background:var(--green-soft)">☁️</div>
+        <div class="row-main">
+          <div class="row-title">${esc(u.email)}</div>
+          <div class="row-sub" id="sync-status">${syncStatusText()}</div>
+        </div>
+      </div>
+      <button class="list-row" data-action="cloud-sync">
+        <div class="row-icon" style="background:var(--tint-soft)">🔄</div>
+        <div class="row-main"><div class="row-title">Sincronizar agora</div>
+        <div class="row-sub">Baixa e envia as alterações</div></div>
+      </button>
+      <button class="list-row" data-action="cloud-signout">
+        <div class="row-icon" style="background:var(--fill)">🚪</div>
+        <div class="row-main"><div class="row-title">Sair da conta</div>
+        <div class="row-sub">Os dados continuam neste aparelho</div></div>
+      </button>
     </div>`;
 }
 
@@ -1290,6 +1457,22 @@ function bindViewEvents(root) {
         case "records-tab": state.recordsTab = el.dataset.tab; render(); break;
         case "goto-records": navigate("records"); break;
         case "goto-maintenance": navigate("maintenance"); break;
+        case "cloud-signin": cloudAuth("signin"); break;
+        case "cloud-signup": cloudAuth("signup"); break;
+        case "cloud-sync":
+          toast("Sincronizando…");
+          syncMeta.dirty = hasLocalData() ? syncMeta.dirty : false;
+          cloudPullNow().then(() => cloudPushNow()).then(() => { toast("Sincronizado ✅"); refreshSyncStatus(); });
+          break;
+        case "cloud-signout":
+          if (confirm("Sair da conta? Os dados continuam salvos neste aparelho e na nuvem.")) {
+            Cloud.signOut();
+            syncMeta = {};
+            saveSyncMeta();
+            render();
+            toast("Você saiu da conta");
+          }
+          break;
         case "test-notification":
           showNotif("🔔 4Drivers", {
             body: "Notificações funcionando! Você será avisado sobre manutenções vencidas ou próximas.",
@@ -1383,8 +1566,20 @@ function init() {
   checkAndNotify();
   setInterval(checkAndNotify, 30 * 60 * 1000);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") { checkAndNotify(); updateAlertBadge(); }
+    if (document.visibilityState === "visible") {
+      checkAndNotify();
+      updateAlertBadge();
+      cloudPullNow();
+    } else if (syncMeta.dirty) {
+      cloudPushNow(); // envia pendências antes de o app ir para segundo plano
+    }
   });
+
+  // sincronização: baixa a nuvem ao abrir e reenvia pendências
+  if (cloudReady()) {
+    cloudPullNow();
+    if (syncMeta.dirty) scheduleCloudPush();
+  }
 
   // service worker (PWA offline)
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
