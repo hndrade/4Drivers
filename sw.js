@@ -1,6 +1,6 @@
 /* 4Drivers — service worker: app shell offline (cache-first com atualização em segundo plano) */
 
-const CACHE = "4drivers-v1";
+const CACHE = "4drivers-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -24,6 +24,16 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) if ("focus" in client) return client.focus();
+      return self.clients.openWindow("./");
+    })
   );
 });
 
