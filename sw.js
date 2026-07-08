@@ -1,6 +1,6 @@
 /* 4Drivers — service worker: app shell offline (cache-first com atualização em segundo plano) */
 
-const CACHE = "4drivers-v4";
+const CACHE = "4drivers-v5";
 const ASSETS = [
   "./",
   "./index.html",

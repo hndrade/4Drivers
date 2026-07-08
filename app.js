@@ -310,6 +310,7 @@ async function cloudPushNow() {
     // fica pendente: tenta de novo no próximo save/retorno ao app
     console.warn("Sync push:", e.message);
     refreshSyncStatus();
+    if (authGateActive()) render(); // sessão expirou: volta para a tela de login
   }
 }
 
@@ -338,6 +339,7 @@ async function cloudPullNow() {
     render();
   } catch (e) {
     console.warn("Sync pull:", e.message);
+    if (authGateActive()) render(); // sessão expirou: volta para a tela de login
   }
 }
 
@@ -359,6 +361,8 @@ async function cloudAuth(mode) {
   const email = fieldVal("cloud-email");
   const pass = field("cloud-pass")?.value || "";
   if (!email || !pass) { toast("Informe e-mail e senha"); return; }
+  const btns = document.querySelectorAll('[data-action="cloud-signin"],[data-action="cloud-signup"]');
+  btns.forEach((b) => (b.disabled = true));
   try {
     if (mode === "signup") {
       const r = await Cloud.signUp(email, pass);
@@ -366,11 +370,22 @@ async function cloudAuth(mode) {
     } else {
       await Cloud.signIn(email, pass);
     }
+    // troca de conta no mesmo aparelho: não mistura os dados do usuário anterior
+    const uid = Cloud.user().id;
+    if (syncMeta.owner && syncMeta.owner !== uid) {
+      adoptData(defaultData());
+      syncMeta = { owner: uid };
+    } else {
+      syncMeta.owner = uid;
+    }
+    saveSyncMeta();
     toast("Conectado ☁️");
     await cloudPullNow();
     render();
   } catch (e) {
     toast(e.message);
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
   }
 }
 
@@ -519,12 +534,21 @@ function renderVehicleFilter() {
     db.vehicles.map((v) => `<option value="${v.id}" ${state.vehicleFilter === v.id ? "selected" : ""}>${esc(v.name)}</option>`).join("");
 }
 
+/** App exige login quando a sincronização está configurada. */
+const authGateActive = () => typeof Cloud !== "undefined" && Cloud.enabled() && !Cloud.user();
+
 function render() {
+  const view = document.getElementById("view");
+  document.body.classList.toggle("auth-mode", authGateActive());
+  if (authGateActive()) {
+    view.innerHTML = viewAuth();
+    bindViewEvents(view);
+    return;
+  }
   renderNav();
   renderVehicleFilter();
   updateAlertBadge();
   document.getElementById("page-title").textContent = PAGE_TITLES[state.route];
-  const view = document.getElementById("view");
   switch (state.route) {
     case "home": view.innerHTML = viewHome(); break;
     case "records": view.innerHTML = viewRecords(); break;
@@ -536,6 +560,23 @@ function render() {
 }
 
 /* ---------------- Views ---------------- */
+
+function viewAuth() {
+  return `<div class="auth-screen">
+    <img src="icons/icon.svg" alt="" width="76" height="76">
+    <h1>4Drivers</h1>
+    <p class="auth-sub">Manutenções, abastecimentos e gastos dos seus veículos — sincronizados em todos os aparelhos.</p>
+    <div class="form-group">
+      <div class="form-row"><label>E-mail</label><input id="cloud-email" type="email" autocomplete="email" inputmode="email" placeholder="voce@email.com"></div>
+      <div class="form-row"><label>Senha</label><input id="cloud-pass" type="password" autocomplete="current-password" placeholder="mínimo 6 caracteres"></div>
+    </div>
+    <div class="auth-actions">
+      <button class="btn-primary" data-action="cloud-signin">Entrar</button>
+      <button class="btn-secondary" data-action="cloud-signup">Criar conta</button>
+    </div>
+    <p class="form-hint" style="margin-top:14px">Primeira vez aqui? Toque em “Criar conta”. Use a mesma conta no celular e no computador para manter tudo sincronizado.</p>
+  </div>`;
+}
 
 function filteredVehicleIds() {
   return state.vehicleFilter ? [state.vehicleFilter] : db.vehicles.map((v) => v.id);
@@ -897,21 +938,9 @@ function viewCloudSection() {
       <div class="form-hint" style="margin-top:0">Não configurada — os dados ficam apenas neste dispositivo. Para sincronizar entre web e celular, crie um projeto gratuito no Supabase e preencha o arquivo <strong>supabase-config.js</strong> (passo a passo no README do projeto).</div>`;
   }
   const u = Cloud.user();
-  if (!u) {
-    return `
-      <div class="section-title">Sincronização entre aparelhos</div>
-      <div class="form-group">
-        <div class="form-row"><label>E-mail</label><input id="cloud-email" type="email" autocomplete="email" inputmode="email" placeholder="voce@email.com"></div>
-        <div class="form-row"><label>Senha</label><input id="cloud-pass" type="password" autocomplete="current-password" placeholder="mínimo 6 caracteres"></div>
-      </div>
-      <div style="display:flex;gap:10px;margin-bottom:10px">
-        <button class="btn-primary" style="flex:1" data-action="cloud-signin">Entrar</button>
-        <button class="btn-secondary" style="flex:1" data-action="cloud-signup">Criar conta</button>
-      </div>
-      <div class="form-hint">Use a mesma conta em todos os aparelhos para manter veículos e registros sincronizados. Ao entrar, os dados deste aparelho são mesclados com os da nuvem.</div>`;
-  }
+  if (!u) return ""; // sem sessão o app mostra a tela de login, não os Ajustes
   return `
-    <div class="section-title">Sincronização entre aparelhos</div>
+    <div class="section-title">Conta e sincronização</div>
     <div class="form-group">
       <div class="list-row" style="cursor:default">
         <div class="row-icon" style="background:var(--green-soft)">☁️</div>
@@ -928,7 +957,7 @@ function viewCloudSection() {
       <button class="list-row" data-action="cloud-signout">
         <div class="row-icon" style="background:var(--fill)">🚪</div>
         <div class="row-main"><div class="row-title">Sair da conta</div>
-        <div class="row-sub">Os dados continuam neste aparelho</div></div>
+        <div class="row-sub">Será preciso entrar de novo para usar o app</div></div>
       </button>
     </div>`;
 }
@@ -1465,10 +1494,10 @@ function bindViewEvents(root) {
           cloudPullNow().then(() => cloudPushNow()).then(() => { toast("Sincronizado ✅"); refreshSyncStatus(); });
           break;
         case "cloud-signout":
-          if (confirm("Sair da conta? Os dados continuam salvos neste aparelho e na nuvem.")) {
+          if (confirm("Sair da conta? Seus dados continuam salvos na nuvem e você precisará entrar novamente para acessar o app.")) {
+            if (syncMeta.dirty) cloudPushNow(); // envia pendências antes de sair
             Cloud.signOut();
-            syncMeta = {};
-            saveSyncMeta();
+            state.route = "home";
             render();
             toast("Você saiu da conta");
           }
@@ -1493,6 +1522,11 @@ function bindViewEvents(root) {
           break;
       }
     });
+  });
+
+  // tela de login: Enter no campo de senha entra
+  field("cloud-pass")?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") cloudAuth("signin");
   });
 
   // ajustes: inputs com persistência imediata
@@ -1577,6 +1611,7 @@ function init() {
 
   // sincronização: baixa a nuvem ao abrir e reenvia pendências
   if (cloudReady()) {
+    if (!syncMeta.owner) { syncMeta.owner = Cloud.user().id; saveSyncMeta(); }
     cloudPullNow();
     if (syncMeta.dirty) scheduleCloudPush();
   }
