@@ -269,32 +269,72 @@ function pendingAlerts() {
   return alerts;
 }
 
-async function requestNotifPermission() {
+const isIOS = () =>
+  /iP(hone|ad|od)/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+const isStandalone = () =>
+  window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+/** Situação atual da permissão de notificação, com orientação para o usuário. */
+function notifPermissionInfo() {
   if (!("Notification" in window)) {
-    toast("Este navegador não suporta notificações");
+    if (isIOS() && !isStandalone())
+      return { state: "ios-install", text: "No iPhone/iPad as notificações só funcionam com o app instalado: toque em Compartilhar → “Adicionar à Tela de Início” (iOS 16.4+), abra por lá e ative de novo." };
+    return { state: "unsupported", text: "Este navegador não suporta notificações." };
+  }
+  if (Notification.permission === "denied")
+    return { state: "denied", text: "As notificações estão bloqueadas para este site no navegador. Para desbloquear: toque no cadeado 🔒 na barra de endereço (ou ⋮ → Configurações do site) → Notificações → Permitir, e ative de novo aqui." };
+  if (Notification.permission === "granted")
+    return { state: "granted", text: "" };
+  return { state: "ask", text: "" }; // ainda não foi perguntado
+}
+
+/** Exibe uma notificação. Prefere o service worker (obrigatório no Android/iOS); cai para o construtor no desktop. */
+async function showNotif(title, options) {
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, options);
+        return true;
+      }
+    }
+  } catch (e) { /* tenta o fallback */ }
+  try {
+    new Notification(title, options);
+    return true;
+  } catch (e) {
     return false;
   }
+}
+
+async function requestNotifPermission() {
+  const info = notifPermissionInfo();
+  if (info.state === "unsupported" || info.state === "ios-install" || info.state === "denied") {
+    if (info.text) toast(info.text);
+    return false;
+  }
+  if (info.state === "granted") return true;
   const perm = await Notification.requestPermission();
   return perm === "granted";
 }
 
-function checkAndNotify() {
+async function checkAndNotify() {
   if (!db.settings.notifEnabled || !("Notification" in window) || Notification.permission !== "granted") return;
   const today = todayISO();
   let changed = false;
   for (const a of pendingAlerts()) {
     const m = a.maintenance;
     if (m.lastNotified === today) continue; // no máximo 1 notificação por item por dia
-    try {
-      const title = a.status.state === "overdue" ? "⚠️ Manutenção vencida" : "🔔 Manutenção próxima";
-      new Notification(title, {
-        body: `${a.vehicle.name}: ${m.title} — ${a.status.detail}`,
-        icon: "icons/icon-192.png",
-        tag: "4drivers-" + m.id,
-      });
-      m.lastNotified = today;
-      changed = true;
-    } catch (e) { /* alguns navegadores exigem SW para notificar */ }
+    const title = a.status.state === "overdue" ? "⚠️ Manutenção vencida" : "🔔 Manutenção próxima";
+    const shown = await showNotif(title, {
+      body: `${a.vehicle.name}: ${m.title} — ${a.status.detail}`,
+      icon: "icons/icon-192.png",
+      badge: "icons/icon-192.png",
+      tag: "4drivers-" + m.id,
+    });
+    if (shown) { m.lastNotified = today; changed = true; }
   }
   if (changed) save();
 }
@@ -657,14 +697,21 @@ function viewMaintenance() {
 
 function viewSettings() {
   const s = db.settings;
-  const notifSupported = "Notification" in window;
+  const info = notifPermissionInfo();
+  const enabled = s.notifEnabled && info.state === "granted";
+  let notifHint = "As notificações são exibidas quando o app está aberto ou instalado na tela inicial.";
+  if (info.state === "denied") notifHint = "🚫 " + info.text;
+  else if (info.state === "ios-install") notifHint = "📲 " + info.text;
+  else if (info.state === "unsupported") notifHint = "⚠️ " + info.text;
+  else if (enabled) notifHint = "✅ Notificações ativas. " + notifHint;
+
   const counts = `${db.vehicles.length} veículos · ${db.fuelings.length} abastecimentos · ${db.expenses.length} gastos · ${db.services.length} serviços · ${db.maintenances.length} manutenções`;
   return `
     <div class="section-title">Alertas e notificações</div>
     <div class="form-group">
       <div class="form-row">
         <label style="width:auto;flex:1">Notificações no dispositivo</label>
-        <input type="checkbox" id="set-notif" ${s.notifEnabled ? "checked" : ""} ${notifSupported ? "" : "disabled"}>
+        <input type="checkbox" id="set-notif" ${enabled ? "checked" : ""} ${info.state === "unsupported" || info.state === "ios-install" ? "disabled" : ""}>
       </div>
       <div class="form-row">
         <label style="width:auto;flex:1">Avisar com antecedência de</label>
@@ -676,8 +723,13 @@ function viewSettings() {
         <input type="number" id="set-notif-km" value="${s.notifKm}" min="50" max="5000" step="50" style="max-width:80px">
         <span class="unit">km</span>
       </div>
+      ${enabled ? `<button class="list-row" data-action="test-notification">
+        <div class="row-icon" style="background:var(--tint-soft)">🔔</div>
+        <div class="row-main"><div class="row-title">Enviar notificação de teste</div>
+        <div class="row-sub">Confira se os avisos chegam neste aparelho</div></div>
+      </button>` : ""}
     </div>
-    <div class="form-hint">As notificações são exibidas quando o app está aberto ou instalado na tela inicial. ${notifSupported ? "" : "⚠️ Este navegador não suporta notificações."}</div>
+    <div class="form-hint">${notifHint}</div>
 
     <div class="section-title">Dados</div>
     <div class="form-group">
@@ -1238,6 +1290,14 @@ function bindViewEvents(root) {
         case "records-tab": state.recordsTab = el.dataset.tab; render(); break;
         case "goto-records": navigate("records"); break;
         case "goto-maintenance": navigate("maintenance"); break;
+        case "test-notification":
+          showNotif("🔔 4Drivers", {
+            body: "Notificações funcionando! Você será avisado sobre manutenções vencidas ou próximas.",
+            icon: "icons/icon-192.png",
+            badge: "icons/icon-192.png",
+            tag: "4drivers-test",
+          }).then((shown) => toast(shown ? "Notificação de teste enviada" : "Não foi possível exibir — verifique as permissões"));
+          break;
         case "export-data": exportJSON(); break;
         case "import-data": importJSON(); break;
         case "export-csv": exportCSV(); break;
@@ -1257,14 +1317,20 @@ function bindViewEvents(root) {
     field("set-notif")?.addEventListener("change", async (ev) => {
       if (ev.target.checked) {
         const ok = await requestNotifPermission();
-        if (!ok) { ev.target.checked = false; toast("Permissão de notificação negada"); return; }
+        if (!ok) {
+          ev.target.checked = false;
+          render(); // atualiza a dica com a orientação de desbloqueio
+          return;
+        }
         db.settings.notifEnabled = true;
         save();
         toast("Notificações ativadas 🔔");
         checkAndNotify();
+        render();
       } else {
         db.settings.notifEnabled = false;
         save();
+        render();
       }
     });
     field("set-notif-days")?.addEventListener("change", (ev) => {

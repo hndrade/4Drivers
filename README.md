@@ -69,7 +69,10 @@ Abra `http://localhost:8080`.
 
 ## 🔔 Sobre as notificações
 
-O app usa a API de notificações do navegador: os avisos são verificados ao abrir o app e a cada 30 minutos com ele aberto/instalado (máx. 1 aviso por item por dia). Por ser um app sem servidor, não há push remoto — o sino no topo e os banners do painel mostram sempre os alertas pendentes.
+O app usa a API de notificações do navegador via service worker: os avisos são verificados ao abrir o app e a cada 30 minutos com ele aberto/instalado (máx. 1 aviso por item por dia). Por ser um app sem servidor, não há push remoto — o sino no topo e os banners do painel mostram sempre os alertas pendentes.
+
+- **Permissão bloqueada?** Toque no cadeado 🔒 na barra de endereço (ou ⋮ → Configurações do site) → Notificações → Permitir, e reative em Ajustes. Há um botão de notificação de teste em Ajustes para conferir.
+- **iPhone/iPad:** as notificações web só funcionam com o app **instalado na Tela de Início** (iOS 16.4+) — instale primeiro e ative por lá.
 
 ## 📂 Estrutura
 
